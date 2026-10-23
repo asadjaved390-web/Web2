@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Web Tech Quiz</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>tailwind.config = { darkMode: 'class' }</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+:root{--bg:#f1f5f9;--card:#fff;--text:#0f172a;--muted:#64748b;--line:#e2e8f0;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+:root.dark{--bg:#0f172a;--card:#1e293b;--text:#f1f5f9;--muted:#94a3b8;--line:#334155}
+body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh;transition:background .3s}
+.card{background:var(--card);border:1px solid var(--line)}
+.muted{color:var(--muted)}
+.opt{border:2px solid var(--line);transition:all .2s}
+.opt:not(:disabled):hover{border-color:#6366f1;transform:translateX(3px)}
+.opt.ok{background:#16a34a;border-color:#16a34a;color:#fff}
+.opt.bad{background:#dc2626;border-color:#dc2626;color:#fff}
+.seg{height:10px;border-radius:6px;background:var(--line);transition:background .3s}
+.seg.cur{background:#6366f1;animation:pulse 1.2s infinite}
+.seg.ok{background:#16a34a}.seg.bad{background:#dc2626}.seg.skip{background:#f59e0b}
+@keyframes pulse{50%{opacity:.5}}
+</style>
+</head>
+<body>
+<main class="max-w-2xl mx-auto p-4 sm:p-6">
+  <header class="flex items-center justify-between mb-4">
+    <h1 class="text-xl sm:text-2xl font-bold">Web Tech Quiz</h1>
+    <button id="theme" class="card rounded-full px-4 py-2 text-sm" aria-label="Toggle dark or light mode">🌙 Dark</button>
+  </header>
+
+  <section id="start" class="card rounded-2xl p-6 text-center">
+    <h2 class="text-2xl font-semibold mb-2">Ready to test yourself?</h2>
+    <p class="muted mb-4">5 randomized questions · 20 seconds each · instant feedback</p>
+    <input id="name" class="w-full sm:w-64 rounded-lg px-3 py-2 mb-4 border text-black" placeholder="Your name (for the PDF)">
+    <div><button id="go" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl px-8 py-3">Start Quiz</button></div>
+  </section>
+
+  <section id="quiz" class="hidden">
+    <div id="bar" class="grid gap-1.5 mb-3"></div>
+    <div class="flex justify-between text-sm mb-3">
+      <span id="count" class="muted"></span>
+      <span id="timer" class="font-bold tabular-nums"></span>
+    </div>
+    <div class="card rounded-2xl p-5 sm:p-6">
+      <h2 id="q" class="text-lg sm:text-xl font-semibold mb-4"></h2>
+      <div id="opts" class="grid gap-3"></div>
+      <p id="fb" class="mt-4 font-medium min-h-[1.5rem]"></p>
+      <button id="next" class="hidden mt-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl px-6 py-2">Next →</button>
+    </div>
+  </section>
+
+  <section id="result" class="hidden card rounded-2xl p-6 text-center">
+    <h2 class="text-2xl font-semibold mb-1">Quiz complete!</h2>
+    <p id="score" class="text-4xl font-bold my-3"></p>
+    <p id="msg" class="muted mb-4"></p>
+    <div id="review" class="text-left text-sm grid gap-2 mb-5"></div>
+    <div class="flex flex-wrap gap-3 justify-center">
+      <button id="pdf" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl px-5 py-2">⬇ Download PDF</button>
+      <button id="again" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl px-5 py-2">Retry</button>
+    </div>
+  </section>
+</main>
+
+<script>
+const BANK = [
+  {q:"Which HTML tag is used for the largest heading?",o:["<h6>","<h1>","<head>","<header>"],a:1},
+  {q:"Which CSS property changes the text color?",o:["font-color","text-style","color","fg"],a:2},
+  {q:"Which keyword declares a block-scoped variable in JavaScript?",o:["var","let","define","dim"],a:1},
+  {q:"Which Bootstrap/Tailwind-style approach makes layouts adapt to screen size?",o:["Media queries / responsive utilities","Inline tables","Frames","Fixed pixel widths"],a:0},
+  {q:"What does CSS stand for?",o:["Computer Style Sheets","Creative Style System","Cascading Style Sheets","Colorful Style Sheets"],a:2},
+  {q:"Which method adds an event listener in JavaScript?",o:["attachEvent()","addEventListener()","onEvent()","listen()"],a:1},
+  {q:"Which HTML attribute makes an image accessible to screen readers?",o:["title","src","alt","href"],a:2},
+  {q:"Which CSS layout module is designed for two-dimensional layouts?",o:["Grid","Float","Marquee","Table-cell"],a:0},
+  {q:"Which operator checks both value and type in JavaScript?",o:["==","=","===","!="],a:2},
+  {q:"Which tag links an external JavaScript file?",o:["<link>","<script>","<style>","<js>"],a:1}
+];
+const N=5, TIME=20;
+const $=id=>document.getElementById(id);
+const shuffle=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+let qs=[],idx=0,res=[],left=TIME,tick=null,locked=false;
+
+// Theme
+const root=document.documentElement;
+function setTheme(d){root.classList.toggle('dark',d);$('theme').textContent=d?'☀️ Light':'🌙 Dark'}
+setTheme(matchMedia('(prefers-color-scheme: dark)').matches);
+$('theme').onclick=()=>setTheme(!root.classList.contains('dark'));
+
+function show(id){['start','quiz','result'].forEach(s=>$(s).classList.toggle('hidden',s!==id))}
+
+function start(){
+  qs=shuffle(BANK).slice(0,N).map(x=>{const c=x.o[x.a];const o=shuffle(x.o);return{q:x.q,o,a:o.indexOf(c)}});
+  idx=0;res=Array(N).fill(null);
+  $('bar').style.gridTemplateColumns=`repeat(${N},1fr)`;
+  show('quiz');render();
+}
+function drawBar(){
+  $('bar').innerHTML=res.map((r,i)=>`<div class="seg ${r?r.s:(i===idx?'cur':'')}"></div>`).join('');
+}
+function render(){
+  locked=false;const q=qs[idx];
+  $('count').textContent=`Question ${idx+1} of ${N}`;
+  $('q').textContent=q.q;$('fb').textContent='';$('next').classList.add('hidden');
+  $('opts').innerHTML='';
+  q.o.forEach((t,i)=>{const b=document.createElement('button');b.className='opt rounded-xl px-4 py-3 text-left';b.textContent=t;b.onclick=()=>answer(i);$('opts').appendChild(b)});
+  drawBar();left=TIME;updTimer();clearInterval(tick);
+  tick=setInterval(()=>{left--;updTimer();if(left<=0)answer(-1)},1000);
+}
+function updTimer(){const t=$('timer');t.textContent=`⏱ ${left}s`;t.style.color=left<=5?'#dc2626':''}
+function answer(i){
+  if(locked)return;locked=true;clearInterval(tick);
+  const q=qs[idx],btns=[...$('opts').children];
+  btns.forEach((b,k)=>{b.disabled=true;if(k===q.a)b.classList.add('ok');else if(k===i)b.classList.add('bad')});
+  const ok=i===q.a;
+  res[idx]={s:i===-1?'skip':ok?'ok':'bad',pick:i};
+  $('fb').textContent=i===-1?'⏰ Time’s up! The correct answer is highlighted.':ok?'✅ Correct!':'❌ Incorrect.';
+  drawBar();
+  $('next').textContent=idx===N-1?'See results':'Next →';$('next').classList.remove('hidden');
+}
+$('next').onclick=()=>{if(idx===N-1)finish();else{idx++;render()}};
+
+function score(){return res.filter(r=>r&&r.s==='ok').length}
+function finish(){
+  show('result');const s=score();
+  $('score').textContent=`${s} / ${N}`;
+  $('msg').textContent=s===N?'Perfect score! 🎉':s>=3?'Nice work! Keep practicing.':'Keep going, you’ll get there!';
+  $('review').innerHTML=qs.map((q,i)=>{const r=res[i];const col=r.s==='ok'?'#16a34a':r.s==='skip'?'#f59e0b':'#dc2626';
+    return `<div class="rounded-lg p-3 border" style="border-left:6px solid ${col};border-color:var(--line);border-left-color:${col}"><b>${i+1}. </b><span class="rev"></span><div class="muted mt-1">Your answer: ${r.pick<0?'No answer':'<span class="p"></span>'} · Correct: <span class="c"></span></div></div>`}).join('');
+  [...$('review').children].forEach((d,i)=>{const q=qs[i];d.querySelector('.rev').textContent=q.q;d.querySelector('.c').textContent=q.o[q.a];const p=d.querySelector('.p');if(p)p.textContent=q.o[res[i].pick]});
+}
+$('pdf').onclick=()=>{
+  const {jsPDF}=window.jspdf;const d=new jsPDF();let y=20;
+  d.setFontSize(18);d.text('Web Tech Quiz Results',14,y);y+=10;
+  d.setFontSize(12);d.text(`Name: ${$('name').value||'Anonymous'}`,14,y);y+=7;
+  d.text(`Date: ${new Date().toLocaleString()}`,14,y);y+=7;
+  d.text(`Score: ${score()} / ${N}`,14,y);y+=12;
+  qs.forEach((q,i)=>{
+    if(y>260){d.addPage();y=20}
+    const r=res[i];
+    d.setFont(undefined,'bold');
+    const t=d.splitTextToSize(`${i+1}. ${q.q}`,180);d.text(t,14,y);y+=t.length*6;
+    d.setFont(undefined,'normal');
+    d.setTextColor(...(r.s==='ok'?[22,163,74]:r.s==='skip'?[217,119,6]:[220,38,38]));
+    d.text(`Your answer: ${r.pick<0?'No answer (time up)':q.o[r.pick]}`,18,y);y+=6;
+    d.setTextColor(0);d.text(`Correct answer: ${q.o[q.a]}`,18,y);y+=10;
+  });
+  d.save('quiz-results.pdf');
+};
+$('go').onclick=start;$('again').onclick=start;
+</script>
+</body>
+</html>
